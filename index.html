@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>KcalTracker</title>
+    <meta name="description" content="Prosty i elegancki kalkulator bilansu kalorycznego 24/7.">
+    
+    <!-- PWA Settings -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#121212">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="KcalTracker">
+    <link rel="apple-touch-icon" href="icon-192.png">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <nav class="top-nav">
+        <h1>KcalTracker</h1>
+        <button id="btnSettings" class="icon-btn"><i class="ri-settings-4-line"></i></button>
+    </nav>
+
+    <main id="viewDashboard" class="view active">
+        <section class="balance-card">
+            <h2 class="section-title">Aktywny Bilans (Od Startu)</h2>
+            <div class="balance-mega" id="valBalance">
+                -- <span class="unit">kcal</span>
+            </div>
+            <div class="balance-subtitle">
+                Aktualizowane co 5 min
+            </div>
+            <div class="stats-row">
+                <div class="stat-item">
+                    <span class="stat-label">Spalanie</span>
+                    <span class="stat-value"><span id="valBurnRate">--</span> <small>kcal/h</small></span>
+                </div>
+            </div>
+        </section>
+
+        <section class="daily-card">
+            <h2 class="section-title">Zjedzone Dzisiaj</h2>
+            <div class="daily-amount">
+                <span id="valDailyEaten">--</span> <span class="unit">kcal</span>
+            </div>
+        </section>
+
+        <section class="target-card">
+            <div class="target-header">
+                <h2 class="section-title">Cel <span id="valTargetName">(--)</span></h2>
+                <div class="target-dates">
+                    <span id="valTargetStart">--</span> <i class="ri-arrow-right-line"></i> <span id="valTargetEnd">--</span>
+                </div>
+            </div>
+            
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="targetProgress" style="width: 0%;"></div>
+            </div>
+            <div class="target-stats">
+                <span id="valTargetCurrent">--</span> / <span id="valTargetGoal">--</span> kcal
+            </div>
+            <div class="target-status" id="valTargetStatus">
+                --
+            </div>
+        </section>
+
+        <div class="action-container">
+            <button id="btnAddMeal" class="fab-btn">
+                <i class="ri-add-line"></i>
+                <span>Dodaj Posiłek</span>
+            </button>
+        </div>
+    </main>
+
+    <!-- History View -->
+    <main id="viewHistory" class="view">
+        <h2 class="view-title">Historia Dzienna</h2>
+        <div class="history-list" id="historyList">
+            <!-- Wypełniane z JS -->
+            <div class="empty-state">Brak wpisów w historii.</div>
+        </div>
+    </main>
+
+    <!-- Settings View -->
+    <main id="viewSettings" class="view">
+        <h2 class="view-title">Ustawienia & Inicjalizacja</h2>
+        <form id="formSettings" class="settings-form">
+            
+            <div class="form-group">
+                <label for="inputInitialBalance">Bilans Startowy (kcal) *</label>
+                <input type="number" id="inputInitialBalance" placeholder="Np. 700" required>
+                <small>Nadpisuje obecny bilans (ustawia nowy start).</small>
+            </div>
+
+            <div class="form-group">
+                <label for="inputBurnRate">Spalasz na godzinę (kcal) *</label>
+                <input type="number" id="inputBurnRate" placeholder="Np. 120" required>
+            </div>
+
+            <div class="form-group margin-top">
+                <label for="inputTargetGoal">Twój Cel (kcal, np. 35000)</label>
+                <input type="number" id="inputTargetGoal" placeholder="Wartość docelowa">
+            </div>
+
+            <div class="form-group-row">
+                <div class="form-group">
+                    <label for="inputTargetStart">Start Celu</label>
+                    <input type="date" id="inputTargetStart">
+                </div>
+                <div class="form-group">
+                    <label for="inputTargetEnd">Koniec Celu</label>
+                    <input type="date" id="inputTargetEnd">
+                </div>
+            </div>
+
+            <button type="submit" class="primary-btn">Zapisz Ustawienia & Resetuj</button>
+        </form>
+    </main>
+
+    <!-- Add Meal Modal -->
+    <div id="modalAddMeal" class="modal">
+        <div class="modal-content">
+            <button class="close-modal" id="btnCloseModal"><i class="ri-close-line"></i></button>
+            <h3 class="modal-title">Dodaj Posiłek</h3>
+            <form id="formAddMeal">
+                <div class="modal-input-group">
+                    <input type="number" id="inputMealKcal" placeholder="Wartość w kcal" required autofocus>
+                </div>
+                <button type="submit" class="primary-btn modal-btn">Zapisz Posiłek</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Bottom Navigation -->
+    <nav class="bottom-nav">
+        <button class="nav-item active" data-target="viewDashboard">
+            <i class="ri-dashboard-line"></i>
+            <span>Dashboard</span>
+        </button>
+        <button class="nav-item" data-target="viewHistory">
+            <i class="ri-history-line"></i>
+            <span>Historia</span>
+        </button>
+    </nav>
+
+    <script src="app.js"></script>
+</body>
+</html>
