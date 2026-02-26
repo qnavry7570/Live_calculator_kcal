@@ -43,18 +43,15 @@ function getFormattedDate(date) {
 
 function checkDayReset() {
     const today = getFormattedDate(new Date());
-    
-    // Day changed?
+
     if (state.lastResetDate !== today) {
-        // Zapisz do historii z dniem wczorajszym
-        // Uwaga: "wczoraj" mogło być kilka dni temu, jeśli apka była trzymana offline długo. Zapiszemy pod kątem lastResetDate
-        if(state.lastResetDate) {
+        if (state.lastResetDate) {
             state.history.unshift({
                 date: state.lastResetDate,
-                eaten: state.dailyEaten
+                eaten: state.dailyEaten,
+                balanceAtMidnight: state.balance
             });
-            // Ograniczamy historię np. do 30 dni
-            if(state.history.length > 30) state.history.pop();
+            if (state.history.length > 30) state.history.pop();
         }
 
         state.dailyEaten = 0;
@@ -71,7 +68,7 @@ function tickBurn() {
 
     const now = Date.now();
     const diffMs = now - state.lastTickTime;
-    
+
     // Oblicz ile minut minęło (nawet jak apka była wyłączona przez kilka dni, timestamp działa)
     const diffMinutes = diffMs / (1000 * 60);
 
@@ -85,7 +82,7 @@ function tickBurn() {
     // Ale w stanie trzymamy precyzyjniej
     state.balance -= burnedKcal;
     state.lastTickTime = now;
-    
+
     saveState();
 }
 
@@ -109,32 +106,40 @@ function updateUI() {
     const tProgress = document.getElementById('targetProgress');
     const tStatus = document.getElementById('valTargetStatus');
     const tName = document.getElementById('valTargetName');
-    
+
     if (state.targetGoal && state.targetStart && state.targetEnd) {
         // Jest włączony cel
         document.querySelector('.target-card').style.display = 'block';
-        
-        tName.innerText = `(${state.targetGoal} kcal)`;
+
+        // Jeżeli bilans jest na minusie (-500), to dodajemy go do Targetu -> Target spada.
+        // Skoro balance jest ujemne, to zwykle dodawanie ujemnych daje odejmowanie, 
+        // czyli: target_obecny = targetGoal + balance (jeśli balance to -500, to wyjdzie 14500).
+        // Jeśli balance to +200, to wyjdzie 15200.
+        const currentTarget = state.targetGoal + state.balance;
+
+        tName.innerText = `(Cel Główny: ${state.targetGoal} kcal)`;
         document.getElementById('valTargetStart').innerText = state.targetStart;
         document.getElementById('valTargetEnd').innerText = state.targetEnd;
 
-        tCurrent.innerText = Math.floor(state.balance);
+        // Pokażmy Obecny Zredukowany/Powiększony Cel zamiast samego statycznego balance
+        // Oraz Pasek Postępu pokaże czy dobijamy do 0.
+        tCurrent.innerText = Math.floor(currentTarget);
         tGoal.innerText = state.targetGoal;
 
-        // Procent paska
-        let pct = (state.balance / state.targetGoal) * 100;
-        if(pct > 100) pct = 100;
-        if(pct < 0) pct = 0;
+        // Pasek postępu. Postęp to to, ile z naszego Target Goal już "spaliliśmy w dół".
+        // Startujemy z 15000 (0%). Chcemy zjechać do 0 (100%).
+        let pct = ((state.targetGoal - currentTarget) / state.targetGoal) * 100;
+        if (pct > 100) pct = 100;
+        if (pct < 0) pct = 0;
         tProgress.style.width = `${pct}%`;
 
-        // Calculate Target Pacing (Status czy obniża czy podwyższa)
-        const diff = Math.floor(state.balance - state.targetGoal);
-        if (diff > 0) {
-            tStatus.innerText = `Nadwyżka ponad Cel: +${diff} kcal`;
-            tStatus.className = 'target-status status-positive';
+        // Calculate Target Pacing
+        if (state.balance > 0) {
+            tStatus.innerText = `Cel oddalił się o: +${Math.floor(state.balance)} kcal`;
+            tStatus.className = 'target-status status-positive'; // Czerwony - cel rośnie
         } else {
-            tStatus.innerText = `Brakuje do Celu: ${Math.abs(diff)} kcal`;
-            tStatus.className = 'target-status status-negative';
+            tStatus.innerText = `Cel zbliżył się o: ${Math.floor(Math.abs(state.balance))} kcal`;
+            tStatus.className = 'target-status status-negative'; // Zielony - cel maleje
         }
     } else {
         document.querySelector('.target-card').style.display = 'none';
@@ -153,8 +158,14 @@ function renderHistory() {
 
     hl.innerHTML = state.history.map(item => `
         <div class="history-item">
-            <span class="history-date">${item.date}</span>
-            <span class="history-kcal">${Math.floor(item.eaten)} kcal</span>
+            <div class="history-left">
+                <div class="history-date">${item.date}</div>
+                <div class="history-eaten" style="font-size: 0.75rem; color: var(--text-secondary);">Zjedzono: ${Math.floor(item.eaten)} kcal</div>
+            </div>
+            <div class="history-kcal" style="text-align: right;">
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 2px;">Bilans O 24:00</div>
+                ${item.balanceAtMidnight !== undefined ? Math.floor(item.balanceAtMidnight) : '?'} kcal
+            </div>
         </div>
     `).join('');
 }
@@ -168,7 +179,7 @@ function switchView(viewId) {
 
     // Update bottom nav state
     document.querySelectorAll('.nav-item').forEach(btn => {
-        if(btn.dataset.target === viewId) btn.classList.add('active');
+        if (btn.dataset.target === viewId) btn.classList.add('active');
         else btn.classList.remove('active');
     });
 }
@@ -197,7 +208,7 @@ document.getElementById('formSettings').addEventListener('submit', (e) => {
     e.preventDefault();
     state.balance = parseFloat(document.getElementById('inputInitialBalance').value);
     state.burnRate = parseFloat(document.getElementById('inputBurnRate').value);
-    
+
     const tg = document.getElementById('inputTargetGoal').value;
     state.targetGoal = tg ? parseFloat(tg) : null;
     state.targetStart = document.getElementById('inputTargetStart').value || null;
@@ -205,7 +216,7 @@ document.getElementById('formSettings').addEventListener('submit', (e) => {
 
     // Reset timera przy nowym bilansie żeby nie doliczyło dziwnych wartości
     state.lastTickTime = Date.now();
-    
+
     saveState();
     switchView('viewDashboard');
 });
@@ -227,7 +238,7 @@ document.getElementById('formAddMeal').addEventListener('submit', (e) => {
         state.balance += kcal;
         state.dailyEaten += kcal;
         saveState();
-        
+
         // Reset input and close
         document.getElementById('inputMealKcal').value = '';
         modal.classList.remove('active');
@@ -240,7 +251,7 @@ loadState();
 
 // Ticks (co 5 minut odpala cykl)
 // Tutaj ustawione na 1 minutę (60000ms) dla precyzji działania, aktualizacja "co kropelkę" cieszy oko
-setInterval(engineCycle, 60000); 
+setInterval(engineCycle, 60000);
 
 // Wykonanie natychmiast przy otwarciu
 engineCycle();
