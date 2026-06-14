@@ -36,7 +36,11 @@ function saveState() {
 
 // ==== HELPERS ====
 function getFormattedDate(date) {
-    return date.toISOString().split('T')[0]; // YYYY-MM-DD
+    // Czas LOKALNY (nie UTC) - inaczej reset "o północy" wypadałby o złej godzinie
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`; // YYYY-MM-DD
 }
 
 // ==== CORE ENGINE (spalanie & resety) ====
@@ -244,6 +248,127 @@ document.getElementById('formAddMeal').addEventListener('submit', (e) => {
         modal.classList.remove('active');
     }
 });
+
+
+// ==== KALKULATOR 2: LIMIT TYGODNIOWY CLAUDE CODE ====
+// Reset tygodnia: niedziela o 17:00 (czas lokalny).
+const CLAUDE_KEY = 'claudeWeeklyState';
+const CLAUDE_RESET_DAY = 0;   // 0 = niedziela (Date.getDay(): 0=ndz ... 6=sob)
+const CLAUDE_RESET_HOUR = 17; // 17:00
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const CLAUDE_TOLERANCE = 1.5; // margines "idealnego tempa" w punktach %
+
+let claudeState = { actualPct: null };
+
+function loadClaudeState() {
+    const saved = localStorage.getItem(CLAUDE_KEY);
+    if (saved) claudeState = { ...claudeState, ...JSON.parse(saved) };
+}
+
+function saveClaudeState() {
+    localStorage.setItem(CLAUDE_KEY, JSON.stringify(claudeState));
+}
+
+// Zwraca info o obecnym tygodniu rozliczeniowym
+function getClaudeWeek() {
+    const now = new Date();
+
+    // Znajdź ostatnią niedzielę o 17:00 (start bieżącego tygodnia)
+    const reset = new Date(now);
+    reset.setHours(CLAUDE_RESET_HOUR, 0, 0, 0);
+    // Cofnij do dnia resetu (niedziela)
+    let daysBack = (reset.getDay() - CLAUDE_RESET_DAY + 7) % 7;
+    reset.setDate(reset.getDate() - daysBack);
+    // Jeśli wyszło w przyszłości (np. niedziela przed 17:00) - cofnij o tydzień
+    if (reset > now) reset.setDate(reset.getDate() - 7);
+
+    const elapsed = now - reset;
+    const next = new Date(reset.getTime() + WEEK_MS);
+    let expectedPct = (elapsed / WEEK_MS) * 100;
+    if (expectedPct > 100) expectedPct = 100;
+    if (expectedPct < 0) expectedPct = 0;
+
+    return { expectedPct, reset, next, elapsed };
+}
+
+function formatCountdown(ms) {
+    if (ms < 0) ms = 0;
+    const totalMin = Math.floor(ms / 60000);
+    const d = Math.floor(totalMin / (60 * 24));
+    const h = Math.floor((totalMin % (60 * 24)) / 60);
+    const m = totalMin % 60;
+    return `${d}d ${h}h ${m}m`;
+}
+
+function updateClaudeUI() {
+    const { expectedPct, next, elapsed } = getClaudeWeek();
+
+    document.getElementById('claudeExpected').innerHTML =
+        `${expectedPct.toFixed(1)}<span class="unit">%</span>`;
+    document.getElementById('claudeExpectedBar').style.width = `${expectedPct}%`;
+    document.getElementById('claudeExpectedLabel').innerText = `${expectedPct.toFixed(1)}%`;
+
+    const timeLeft = next - new Date();
+    document.getElementById('claudeResetInfo').innerHTML =
+        `Reset: niedziela 17:00 &bull; za ${formatCountdown(timeLeft)}`;
+
+    const statusEl = document.getElementById('claudeStatus');
+    const projEl = document.getElementById('claudeProjection');
+    const actual = claudeState.actualPct;
+
+    if (actual === null || actual === undefined || isNaN(actual)) {
+        statusEl.className = 'target-status';
+        statusEl.innerText = 'Wpisz swój % aby porównać z planem';
+        projEl.innerText = '';
+        return;
+    }
+
+    // diff > 0 => zużywasz SZYBCIEJ niż plan (ryzyko wyczerpania) => zwolnij (czerwony)
+    // diff < 0 => masz zapas (wolniej niż plan) => możesz przyspieszyć (zielony)
+    const diff = actual - expectedPct;
+
+    if (diff > CLAUDE_TOLERANCE) {
+        statusEl.className = 'target-status status-positive'; // czerwony
+        statusEl.innerText = `⚠ Za szybko o ${diff.toFixed(1)} pkt% — ZWOLNIJ`;
+    } else if (diff < -CLAUDE_TOLERANCE) {
+        statusEl.className = 'target-status status-negative'; // zielony
+        statusEl.innerText = `✓ Zapas ${Math.abs(diff).toFixed(1)} pkt% — możesz PRZYSPIESZYĆ`;
+    } else {
+        statusEl.className = 'target-status status-negative'; // zielony
+        statusEl.innerText = `✓ Idealne tempo (różnica ${diff.toFixed(1)} pkt%)`;
+    }
+
+    // Projekcja: przy obecnym tempie ile % wyjdzie na koniec tygodnia
+    const elapsedFrac = elapsed / WEEK_MS;
+    if (elapsedFrac > 0.01 && actual > 0) {
+        const projected = actual / elapsedFrac;
+        if (projected > 100.5) {
+            projEl.innerText =
+                `Przy tym tempie wyczerpiesz 100% limitu jeszcze przed resetem ` +
+                `(prognoza ~${projected.toFixed(0)}% gdyby tempo się utrzymało).`;
+        } else {
+            projEl.innerText =
+                `Przy tym tempie zużyjesz ~${projected.toFixed(0)}% limitu do resetu.`;
+        }
+    } else {
+        projEl.innerText = '';
+    }
+}
+
+document.getElementById('inputClaudeActual').addEventListener('input', (e) => {
+    const v = e.target.value;
+    claudeState.actualPct = (v === '' ? null : parseFloat(v));
+    saveClaudeState();
+    updateClaudeUI();
+});
+
+loadClaudeState();
+if (claudeState.actualPct !== null && claudeState.actualPct !== undefined) {
+    document.getElementById('inputClaudeActual').value = claudeState.actualPct;
+}
+updateClaudeUI();
+// Odświeżanie "na żywo" co sekundę (plan tempa rośnie płynnie)
+setInterval(updateClaudeUI, 1000);
 
 
 // ==== INIT ====
