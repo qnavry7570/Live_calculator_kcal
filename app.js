@@ -153,6 +153,9 @@ function updateUI() {
 
     // 3. Update History List if active
     renderHistory();
+
+    // 4. Asystent
+    updateCoachUI();
 }
 
 function renderHistory() {
@@ -310,6 +313,87 @@ function updateDigestUI() {
 }
 
 
+// ==== ASYSTENT / COACH ====
+const MEAL_REMINDER_HOURS = 5; // po ilu h bez posiłku przypominać
+
+function formatAgo(ms) {
+    const totalMin = Math.floor(ms / 60000);
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    if (h > 0) return `${h}h ${m}min temu`;
+    return `${m}min temu`;
+}
+
+function updateCoachUI() {
+    const mainEl = document.getElementById('coachMain');
+    const listEl = document.getElementById('coachList');
+    if (!mainEl) return;
+
+    if (!state.burnRate || state.burnRate <= 0) {
+        mainEl.className = 'coach-main';
+        mainEl.innerText = 'Ustaw spalanie (kcal/h) w ustawieniach, aby zacząć.';
+        listEl.innerHTML = '';
+        return;
+    }
+
+    // Dzienny "budżet": ile spalasz w ciągu doby
+    const dailyBurn = state.burnRate * 24;
+    let dailyAllowance = dailyBurn; // domyślnie: jedz tyle ile spalasz (bilans 0)
+    const items = [];
+
+    // Jeśli ustawiony cel z datami — policz wymagany dzienny deficyt
+    if (state.targetGoal && state.targetStart && state.targetEnd) {
+        const start = new Date(state.targetStart + 'T00:00:00');
+        const end = new Date(state.targetEnd + 'T23:59:59');
+        const totalDays = Math.max(1, (end - start) / 86400000);
+        const requiredDailyDeficit = state.targetGoal / totalDays;
+        dailyAllowance = dailyBurn - requiredDailyDeficit;
+
+        const currentTarget = state.targetGoal + state.balance; // ile deficytu jeszcze brakuje
+        const daysLeft = Math.max(0, Math.ceil((end - new Date()) / 86400000));
+
+        if (currentTarget <= 0) {
+            items.push(['ri-trophy-line', 'Cel osiągnięty! 🎉', false]);
+        } else {
+            items.push(['ri-flag-line',
+                `Do celu: ${Math.floor(currentTarget)} kcal deficytu • zostało ${daysLeft} dni`, false]);
+        }
+    }
+
+    // Ile można jeszcze dziś zjeść
+    const canEat = dailyAllowance - state.dailyEaten;
+
+    if (canEat > 50) {
+        mainEl.className = 'coach-main green';
+        mainEl.innerText = `Możesz dziś zjeść jeszcze ~${Math.floor(canEat)} kcal 🍽️`;
+    } else if (canEat < -50) {
+        mainEl.className = 'coach-main red';
+        mainEl.innerText = `Przekroczono dzienny limit o ${Math.floor(-canEat)} kcal — lepiej odpuść jedzenie.`;
+    } else {
+        mainEl.className = 'coach-main green';
+        mainEl.innerText = 'Idealnie — jesteś dokładnie na dziennym limicie.';
+    }
+
+    // Zjedzone dziś / limit
+    items.push(['ri-restaurant-line',
+        `Zjedzone dziś: ${Math.floor(state.dailyEaten)} / ${Math.floor(dailyAllowance)} kcal`, false]);
+
+    // Przypomnienie o posiłku
+    if (state.digestTime) {
+        const ago = Date.now() - state.digestTime;
+        const isLate = ago > MEAL_REMINDER_HOURS * 3600000;
+        items.push(['ri-time-line',
+            `Ostatni posiłek: ${formatAgo(ago)}${isLate ? ' — czas coś zjeść!' : ''}`, isLate]);
+    } else {
+        items.push(['ri-time-line', 'Nie zalogowano jeszcze żadnego posiłku — dodaj wpis.', true]);
+    }
+
+    listEl.innerHTML = items.map(([icon, text, alert]) =>
+        `<div class="coach-item${alert ? ' alert' : ''}"><i class="${icon}"></i><span>${text}</span></div>`
+    ).join('');
+}
+
+
 // ==== KALKULATOR 2: LIMIT TYGODNIOWY CLAUDE CODE ====
 // Reset tygodnia: niedziela o 17:00 (czas lokalny).
 const CLAUDE_KEY = 'claudeWeeklyState';
@@ -433,6 +517,9 @@ setInterval(updateClaudeUI, 1000);
 // Licznik trawienia również odświeżany co sekundę
 updateDigestUI();
 setInterval(updateDigestUI, 1000);
+
+// Asystent odświeżany co 30s (czas "od ostatniego posiłku" + przypomnienia)
+setInterval(updateCoachUI, 30000);
 
 
 // ==== INIT ====

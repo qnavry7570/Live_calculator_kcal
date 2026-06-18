@@ -442,6 +442,55 @@ input:focus {
     font-weight: 700;
 }
 
+/* Coach / Asystent card */
+.coach-card .section-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.coach-card .section-title i {
+    color: var(--accent);
+    font-size: 1rem;
+}
+
+.coach-main {
+    font-size: 1.05rem;
+    font-weight: 600;
+    line-height: 1.4;
+    padding: 12px 14px;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.coach-main.green { color: var(--success); background: rgba(16, 185, 129, 0.1); }
+.coach-main.red   { color: var(--danger);  background: rgba(239, 68, 68, 0.1); }
+.coach-main.warn  { color: var(--warning); background: rgba(245, 158, 11, 0.1); }
+
+.coach-list {
+    margin-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.coach-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.coach-item i {
+    font-size: 1rem;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.coach-item.alert { color: var(--warning); }
+.coach-item.alert i { color: var(--warning); }
+
 /* Digestion (spalanie ostatniego posiłku) card */
 .digest-card {
     text-align: center;
