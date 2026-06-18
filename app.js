@@ -13,7 +13,9 @@ let state = {
     targetEnd: null,        // Data końca yyyy-mm-dd
     lastTickTime: null,     // Timestamp z ostatniego przeliczenia spalonych (co 5 min)
     lastResetDate: null,    // Data w formacie YYYY-MM-DD ostatniego restu "Zjedzone"
-    history: []             // Lista obiektów np. { date: 'YYYY-MM-DD', eaten: 2500 }
+    history: [],            // Lista obiektów np. { date: 'YYYY-MM-DD', eaten: 2500 }
+    digestKcal: null,       // Wielkość ostatniego posiłku (kotwica licznika trawienia)
+    digestTime: null        // Timestamp dodania ostatniego posiłku
 };
 
 function loadState() {
@@ -241,6 +243,12 @@ document.getElementById('formAddMeal').addEventListener('submit', (e) => {
     if (!isNaN(kcal) && kcal > 0) {
         state.balance += kcal;
         state.dailyEaten += kcal;
+
+        // Licznik trawienia startuje od nowa od właśnie dodanego posiłku
+        state.digestKcal = kcal;
+        state.digestTime = Date.now();
+        updateDigestUI();
+
         saveState();
 
         // Reset input and close
@@ -248,6 +256,58 @@ document.getElementById('formAddMeal').addEventListener('submit', (e) => {
         modal.classList.remove('active');
     }
 });
+
+
+// ==== LICZNIK TRAWIENIA / SPALANIA OSTATNIEGO POSIŁKU ====
+function formatHMS(ms) {
+    if (ms < 0) ms = 0;
+    const totalSec = Math.floor(ms / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    const p = (n) => String(n).padStart(2, '0');
+    return `${p(h)}:${p(m)}:${p(s)}`;
+}
+
+function updateDigestUI() {
+    const valEl = document.getElementById('digestValue');
+    const timerEl = document.getElementById('digestTimer');
+    const stateEl = document.getElementById('digestState');
+    if (!valEl) return;
+
+    // Brak posiłku albo brak sensownego spalania -> stan spoczynku
+    if (!state.digestKcal || !state.digestTime || state.burnRate <= 0) {
+        valEl.className = 'balance-mega digest-value';
+        valEl.innerHTML = `--<span class="unit">kcal</span>`;
+        timerEl.className = 'digest-timer';
+        timerEl.innerText = '--:--:--';
+        stateEl.innerText = 'Dodaj posiłek, aby uruchomić licznik';
+        return;
+    }
+
+    const burnPerMs = state.burnRate / (60 * 60 * 1000); // kcal na milisekundę
+    const elapsedMs = Date.now() - state.digestTime;
+    const remaining = state.digestKcal - elapsedMs * burnPerMs;
+
+    if (remaining > 0) {
+        // CZERWONY: jeszcze trawisz, odliczanie w dół do zera
+        const msToZero = remaining / burnPerMs;
+        valEl.className = 'balance-mega digest-value red';
+        valEl.innerHTML = `${Math.ceil(remaining)}<span class="unit">kcal</span>`;
+        timerEl.className = 'digest-timer red';
+        timerEl.innerText = formatHMS(msToZero);
+        stateEl.innerText = `Spalasz posiłek ${state.digestKcal} kcal — zostało do strawienia`;
+    } else {
+        // ZIELONY: posiłek spalony, licznik leci w górę (deficyt rośnie)
+        const deficit = -remaining;
+        const msSinceZero = deficit / burnPerMs;
+        valEl.className = 'balance-mega digest-value green';
+        valEl.innerHTML = `${Math.floor(deficit)}<span class="unit">kcal</span>`;
+        timerEl.className = 'digest-timer green';
+        timerEl.innerText = `+${formatHMS(msSinceZero)}`;
+        stateEl.innerText = `Posiłek ${state.digestKcal} kcal spalony — jesteś na deficycie`;
+    }
+}
 
 
 // ==== KALKULATOR 2: LIMIT TYGODNIOWY CLAUDE CODE ====
@@ -369,6 +429,10 @@ if (claudeState.actualPct !== null && claudeState.actualPct !== undefined) {
 updateClaudeUI();
 // Odświeżanie "na żywo" co sekundę (plan tempa rośnie płynnie)
 setInterval(updateClaudeUI, 1000);
+
+// Licznik trawienia również odświeżany co sekundę
+updateDigestUI();
+setInterval(updateDigestUI, 1000);
 
 
 // ==== INIT ====

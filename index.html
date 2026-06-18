@@ -22,7 +22,7 @@
     <!-- Icons -->
     <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
 
-    <link rel="stylesheet" href="style.css?v=2">
+    <link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
 
@@ -46,6 +46,15 @@
                     <span class="stat-value"><span id="valBurnRate">--</span> <small>kcal/h</small></span>
                 </div>
             </div>
+        </section>
+
+        <section class="digest-card balance-card">
+            <h2 class="section-title">Spalanie ostatniego posiłku</h2>
+            <div class="balance-mega digest-value" id="digestValue">
+                --<span class="unit">kcal</span>
+            </div>
+            <div class="digest-timer" id="digestTimer">--:--:--</div>
+            <div class="digest-state" id="digestState">Dodaj posiłek, aby uruchomić licznik</div>
         </section>
 
         <section class="daily-card">
@@ -186,6 +195,6 @@
         </button>
     </nav>
 
-    <script src="app.js?v=2"></script>
+    <script src="app.js?v=3"></script>
 </body>
 </html>
