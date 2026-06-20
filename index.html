@@ -22,7 +22,7 @@
     <!-- Icons -->
     <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
 
-    <link rel="stylesheet" href="style.css?v=4">
+    <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 
@@ -85,7 +85,20 @@
 
         <section class="coach-card">
             <h2 class="section-title"><i class="ri-sparkling-2-line"></i> Asystent</h2>
+
+            <!-- B: adaptacyjny budżet -->
             <div class="coach-main" id="coachMain">Ustaw spalanie i cel w ustawieniach, aby zacząć.</div>
+            <div class="coach-rollover" id="coachRollover"></div>
+
+            <!-- A: prognoza celu -->
+            <div class="coach-forecast" id="coachForecast"></div>
+
+            <!-- C: trend i streak -->
+            <div class="coach-trend" id="coachTrend">
+                <svg class="sparkline" id="coachSparkline" viewBox="0 0 100 32" preserveAspectRatio="none"></svg>
+                <div class="coach-trend-stats" id="coachTrendStats"></div>
+            </div>
+
             <div class="coach-list" id="coachList"></div>
         </section>
 
@@ -201,6 +214,6 @@
         </button>
     </nav>
 
-    <script src="app.js?v=4"></script>
+    <script src="app.js?v=5"></script>
 </body>
 </html>

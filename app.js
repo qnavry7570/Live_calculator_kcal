@@ -314,7 +314,9 @@ function updateDigestUI() {
 
 
 // ==== ASYSTENT / COACH ====
-const MEAL_REMINDER_HOURS = 5; // po ilu h bez posiłku przypominać
+const MEAL_REMINDER_HOURS = 5;  // po ilu h bez posiłku przypominać
+const MIN_DAILY_EAT = 1200;     // bezpieczne minimum kcal/dzień (guardrail)
+const ROLLOVER_DAYS = 7;        // z ilu dni liczyć korektę budżetu
 
 function formatAgo(ms) {
     const totalMin = Math.floor(ms / 60000);
@@ -324,61 +326,166 @@ function formatAgo(ms) {
     return `${m}min temu`;
 }
 
+// Wpisy historii z liczbowym bilansem o północy (najnowsze pierwsze)
+function getMidnightPoints() {
+    return state.history.filter(h => typeof h.balanceAtMidnight === 'number');
+}
+
+// Średnia dzienna zmiana bilansu (ujemna = deficyt); null gdy za mało danych
+function getDailyRate() {
+    const pts = getMidnightPoints();
+    if (pts.length < 2) return null;
+    const newest = pts[0];
+    const oldest = pts[pts.length - 1];
+    const spanDays = Math.max(1, (new Date(newest.date) - new Date(oldest.date)) / 86400000);
+    return (newest.balanceAtMidnight - oldest.balanceAtMidnight) / spanDays;
+}
+
+function fmtDayMonth(d) {
+    return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
 function updateCoachUI() {
     const mainEl = document.getElementById('coachMain');
+    const rollEl = document.getElementById('coachRollover');
+    const foreEl = document.getElementById('coachForecast');
+    const trendEl = document.getElementById('coachTrend');
+    const sparkEl = document.getElementById('coachSparkline');
+    const trendStatsEl = document.getElementById('coachTrendStats');
     const listEl = document.getElementById('coachList');
     if (!mainEl) return;
 
     if (!state.burnRate || state.burnRate <= 0) {
         mainEl.className = 'coach-main';
         mainEl.innerText = 'Ustaw spalanie (kcal/h) w ustawieniach, aby zacząć.';
+        rollEl.innerText = '';
+        foreEl.className = 'coach-forecast';
+        foreEl.innerText = '';
+        trendEl.classList.add('hidden');
         listEl.innerHTML = '';
         return;
     }
 
-    // Dzienny "budżet": ile spalasz w ciągu doby
     const dailyBurn = state.burnRate * 24;
-    let dailyAllowance = dailyBurn; // domyślnie: jedz tyle ile spalasz (bilans 0)
-    const items = [];
+    let baseAllowance = dailyBurn; // domyślnie: jedz tyle ile spalasz (bilans 0)
+    let hasTarget = false, requiredDailyDeficit = 0, currentTarget = 0, end = null, daysLeft = 0;
 
-    // Jeśli ustawiony cel z datami — policz wymagany dzienny deficyt
     if (state.targetGoal && state.targetStart && state.targetEnd) {
+        hasTarget = true;
         const start = new Date(state.targetStart + 'T00:00:00');
-        const end = new Date(state.targetEnd + 'T23:59:59');
+        end = new Date(state.targetEnd + 'T23:59:59');
         const totalDays = Math.max(1, (end - start) / 86400000);
-        const requiredDailyDeficit = state.targetGoal / totalDays;
-        dailyAllowance = dailyBurn - requiredDailyDeficit;
-
-        const currentTarget = state.targetGoal + state.balance; // ile deficytu jeszcze brakuje
-        const daysLeft = Math.max(0, Math.ceil((end - new Date()) / 86400000));
-
-        if (currentTarget <= 0) {
-            items.push(['ri-trophy-line', 'Cel osiągnięty! 🎉', false]);
-        } else {
-            items.push(['ri-flag-line',
-                `Do celu: ${Math.floor(currentTarget)} kcal deficytu • zostało ${daysLeft} dni`, false]);
-        }
+        requiredDailyDeficit = state.targetGoal / totalDays;
+        baseAllowance = dailyBurn - requiredDailyDeficit;
+        currentTarget = state.targetGoal + state.balance; // ile deficytu jeszcze brakuje
+        daysLeft = Math.max(0, Math.ceil((end - new Date()) / 86400000));
     }
 
-    // Ile można jeszcze dziś zjeść
-    const canEat = dailyAllowance - state.dailyEaten;
+    // ===== B: ADAPTACYJNY BUDŻET (ROLLOVER) =====
+    // Sumuj odchylenia (limit - zjedzone) z ostatnich dni: zapas (+) lub dług (-)
+    let bank = 0, used = 0;
+    for (const h of state.history) {
+        if (used >= ROLLOVER_DAYS) break;
+        if (typeof h.eaten === 'number') { bank += (baseAllowance - h.eaten); used++; }
+    }
+    bank = Math.max(-baseAllowance, Math.min(baseAllowance, bank)); // korekta max ±1 dzień
+
+    let adjusted = baseAllowance + bank;
+    let safetyRaised = false;
+    if (adjusted < MIN_DAILY_EAT) { adjusted = MIN_DAILY_EAT; safetyRaised = true; }
+
+    const canEat = adjusted - state.dailyEaten;
 
     if (canEat > 50) {
         mainEl.className = 'coach-main green';
         mainEl.innerText = `Możesz dziś zjeść jeszcze ~${Math.floor(canEat)} kcal 🍽️`;
     } else if (canEat < -50) {
         mainEl.className = 'coach-main red';
-        mainEl.innerText = `Przekroczono dzienny limit o ${Math.floor(-canEat)} kcal — lepiej odpuść jedzenie.`;
+        mainEl.innerText = `Przekroczono dzisiejszy limit o ${Math.floor(-canEat)} kcal.`;
     } else {
         mainEl.className = 'coach-main green';
-        mainEl.innerText = 'Idealnie — jesteś dokładnie na dziennym limicie.';
+        mainEl.innerText = 'Idealnie — jesteś dokładnie na dzisiejszym limicie.';
     }
 
-    // Zjedzone dziś / limit
-    items.push(['ri-restaurant-line',
-        `Zjedzone dziś: ${Math.floor(state.dailyEaten)} / ${Math.floor(dailyAllowance)} kcal`, false]);
+    if (safetyRaised) {
+        rollEl.className = 'coach-rollover warn';
+        rollEl.innerText = `Limit podniesiony do bezpiecznego minimum ${MIN_DAILY_EAT} kcal.`;
+    } else if (Math.abs(bank) > 50) {
+        const sign = bank > 0 ? '+' : '';
+        const why = bank > 0 ? 'zapas z poprzednich dni' : 'nadrabiasz wcześniejsze nadwyżki';
+        rollEl.className = 'coach-rollover';
+        rollEl.innerText = `Korekta: ${sign}${Math.round(bank)} kcal (${why}) • bazowy limit ${Math.round(baseAllowance)} kcal`;
+    } else {
+        rollEl.className = 'coach-rollover';
+        rollEl.innerText = `Dzisiejszy limit: ${Math.round(adjusted)} kcal`;
+    }
 
-    // Przypomnienie o posiłku
+    // ===== A: PROGNOZA CELU =====
+    const rate = getDailyRate(); // ujemna = deficyt
+    foreEl.className = 'coach-forecast';
+    foreEl.innerText = '';
+    if (hasTarget) {
+        if (currentTarget <= 0) {
+            foreEl.className = 'coach-forecast good';
+            foreEl.innerText = '🎉 Cel osiągnięty! Możesz ustawić nowy w ustawieniach.';
+        } else if (rate === null) {
+            foreEl.innerText = `Do celu brakuje ${Math.floor(currentTarget)} kcal deficytu (${daysLeft} dni). Prognoza pojawi się po ~2 dniach historii.`;
+        } else if (rate < -1) {
+            const daysToGoal = currentTarget / (-rate);
+            const proj = new Date(Date.now() + daysToGoal * 86400000);
+            const diffDays = Math.round((end - proj) / 86400000);
+            if (diffDays >= 0) {
+                foreEl.className = 'coach-forecast good';
+                foreEl.innerText = `📈 Prognoza: cel ok. ${fmtDayMonth(proj)} — ${diffDays} dni przed terminem. Tempo: ${Math.round(-rate)} kcal/dzień.`;
+            } else {
+                const needed = Math.ceil(currentTarget / Math.max(1, daysLeft));
+                foreEl.className = 'coach-forecast bad';
+                foreEl.innerText = `⚠️ Prognoza: cel ok. ${fmtDayMonth(proj)} — ${-diffDays} dni po terminie. Przyśpiesz do ~${needed} kcal deficytu/dzień.`;
+            }
+        } else {
+            const needed = Math.ceil(currentTarget / Math.max(1, daysLeft));
+            foreEl.className = 'coach-forecast bad';
+            foreEl.innerText = `⚠️ Bilans nie spada — przy tym tempie nie osiągniesz celu. Potrzebujesz ~${needed} kcal deficytu/dzień.`;
+        }
+    }
+
+    // ===== C: TREND I STREAK =====
+    const pts = getMidnightPoints();
+    if (pts.length >= 2) {
+        trendEl.classList.remove('hidden');
+
+        // Sparkline (od najstarszego do najnowszego)
+        const vals = pts.slice().reverse().map(p => p.balanceAtMidnight);
+        const min = Math.min(...vals), max = Math.max(...vals);
+        const range = (max - min) || 1;
+        const n = vals.length;
+        const coords = vals.map((v, i) => {
+            const x = n > 1 ? (i / (n - 1)) * 100 : 50;
+            const y = 30 - ((v - min) / range) * 28 + 1; // wyższy bilans = wyżej
+            return `${x.toFixed(1)},${y.toFixed(1)}`;
+        }).join(' ');
+        sparkEl.innerHTML = `<polyline points="${coords}" />`;
+
+        // Streak dni w deficycie (od najnowszego) + najlepszy dzień
+        let streak = 0, best = 0, streakActive = true;
+        for (let i = 0; i < pts.length - 1; i++) {
+            const delta = pts[i].balanceAtMidnight - pts[i + 1].balanceAtMidnight;
+            if (streakActive && delta < 0) streak++; else streakActive = false;
+            if (delta < best) best = delta;
+        }
+        const avg = rate !== null ? Math.round(-rate) : 0; // dodatnia = deficyt
+
+        trendStatsEl.innerHTML = `
+            <div class="trend-stat"><span class="ts-value">${avg}</span><span class="ts-label">śr. deficyt/dzień</span></div>
+            <div class="trend-stat"><span class="ts-value">${streak} 🔥</span><span class="ts-label">dni deficytu</span></div>
+            <div class="trend-stat"><span class="ts-value">${Math.round(-best)}</span><span class="ts-label">najlepszy dzień</span></div>
+        `;
+    } else {
+        trendEl.classList.add('hidden');
+    }
+
+    // ===== Przypomnienie o posiłku + cel =====
+    const items = [];
     if (state.digestTime) {
         const ago = Date.now() - state.digestTime;
         const isLate = ago > MEAL_REMINDER_HOURS * 3600000;
@@ -386,6 +493,10 @@ function updateCoachUI() {
             `Ostatni posiłek: ${formatAgo(ago)}${isLate ? ' — czas coś zjeść!' : ''}`, isLate]);
     } else {
         items.push(['ri-time-line', 'Nie zalogowano jeszcze żadnego posiłku — dodaj wpis.', true]);
+    }
+    if (hasTarget && currentTarget > 0) {
+        items.push(['ri-flag-line',
+            `Do celu: ${Math.floor(currentTarget)} kcal deficytu • zostało ${daysLeft} dni`, false]);
     }
 
     listEl.innerHTML = items.map(([icon, text, alert]) =>
