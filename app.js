@@ -160,24 +160,72 @@ function updateUI() {
 
 function renderHistory() {
     const hl = document.getElementById('historyList');
+    const clearBtn = document.getElementById('btnClearHistory');
+
     if (state.history.length === 0) {
         hl.innerHTML = '<div class="empty-state">Brak zapisanych dni wstecz.</div>';
+        if (clearBtn) clearBtn.style.display = 'none';
         return;
     }
+    if (clearBtn) clearBtn.style.display = 'flex';
 
-    hl.innerHTML = state.history.map(item => `
+    hl.innerHTML = state.history.map((item, i) => `
         <div class="history-item">
             <div class="history-left">
                 <div class="history-date">${item.date}</div>
                 <div class="history-eaten" style="font-size: 0.75rem; color: var(--text-secondary);">Zjedzono: ${Math.floor(item.eaten)} kcal</div>
             </div>
-            <div class="history-kcal" style="text-align: right;">
-                <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 2px;">Bilans O 24:00</div>
-                ${item.balanceAtMidnight !== undefined ? Math.floor(item.balanceAtMidnight) : '?'} kcal
+            <div class="history-right">
+                <div class="history-kcal">
+                    <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 2px;">Bilans 24:00</div>
+                    ${item.balanceAtMidnight !== undefined ? Math.floor(item.balanceAtMidnight) : '?'} kcal
+                </div>
+                <div class="history-actions">
+                    <button class="hist-btn" data-action="edit" data-index="${i}"><i class="ri-pencil-line"></i></button>
+                    <button class="hist-btn" data-action="delete" data-index="${i}"><i class="ri-delete-bin-line"></i></button>
+                </div>
             </div>
         </div>
     `).join('');
 }
+
+function deleteHistoryEntry(index) {
+    const item = state.history[index];
+    if (!item) return;
+    if (confirm(`Usunąć wpis z ${item.date} (zjedzono ${Math.floor(item.eaten)} kcal)?`)) {
+        state.history.splice(index, 1);
+        saveState();
+    }
+}
+
+function editHistoryEntry(index) {
+    const item = state.history[index];
+    if (!item) return;
+    const input = prompt(`Edytuj zjedzone kcal dla ${item.date}:`, Math.floor(item.eaten));
+    if (input === null) return; // anulowano
+    const val = parseFloat(input);
+    if (!isNaN(val) && val >= 0) {
+        state.history[index].eaten = val;
+        saveState();
+    }
+}
+
+// Delegacja kliknięć w liście historii (edycja / kasowanie)
+document.getElementById('historyList').addEventListener('click', (e) => {
+    const btn = e.target.closest('.hist-btn');
+    if (!btn) return;
+    const index = parseInt(btn.dataset.index, 10);
+    if (btn.dataset.action === 'delete') deleteHistoryEntry(index);
+    else if (btn.dataset.action === 'edit') editHistoryEntry(index);
+});
+
+// Wyczyść całą historię
+document.getElementById('btnClearHistory').addEventListener('click', () => {
+    if (confirm('Na pewno usunąć CAŁĄ historię? Tej operacji nie można cofnąć.')) {
+        state.history = [];
+        saveState();
+    }
+});
 
 
 // ==== NAVIGATION & MODALS ====

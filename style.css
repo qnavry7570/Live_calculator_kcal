@@ -645,9 +645,56 @@ input:focus {
     font-weight: 600;
 }
 
+.history-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
 .history-kcal {
     font-weight: 700;
     color: var(--success);
+    text-align: right;
+}
+
+.history-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.hist-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    width: 34px;
+    height: 34px;
+    border-radius: var(--radius-sm);
+    font-size: 1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s, border-color 0.2s;
+}
+
+.hist-btn[data-action="delete"]:active { color: var(--danger); border-color: var(--danger); }
+.hist-btn[data-action="edit"]:active { color: var(--accent); border-color: var(--accent); }
+
+.danger-btn {
+    width: 100%;
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    padding: 14px;
+    border-radius: var(--radius-md);
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
 }
 
 .empty-state {
