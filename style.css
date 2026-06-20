@@ -623,6 +623,21 @@ input:focus {
     line-height: 1.4;
 }
 
+.claude-tipping {
+    font-size: 0.9rem;
+    font-weight: 600;
+    line-height: 1.4;
+    margin-top: 12px;
+    padding: 12px 14px;
+    border-radius: var(--radius-sm);
+    text-align: center;
+}
+
+.claude-tipping:empty { display: none; }
+.claude-tipping.good { background: rgba(16, 185, 129, 0.1); color: var(--success); border: 1px solid rgba(16,185,129,0.25); }
+.claude-tipping.warn { background: rgba(245, 158, 11, 0.1); color: var(--warning); border: 1px solid rgba(245,158,11,0.25); }
+.claude-tipping.bad  { background: rgba(239, 68, 68, 0.1);  color: var(--danger);  border: 1px solid rgba(239,68,68,0.25); }
+
 /* History */
 .view-title {
     font-size: 1.5rem;

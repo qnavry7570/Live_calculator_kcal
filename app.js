@@ -559,7 +559,9 @@ const CLAUDE_KEY = 'claudeWeeklyState';
 const CLAUDE_RESET_DAY = 0;   // 0 = niedziela (Date.getDay(): 0=ndz ... 6=sob)
 const CLAUDE_RESET_HOUR = 17; // 17:00
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-const CLAUDE_TOLERANCE = 1.5; // margines "idealnego tempa" w punktach %
+const CLAUDE_TOLERANCE = 1.5;     // margines "idealnego tempa" w punktach %
+const CLAUDE_TARGET_PCT = 100;    // jaki % limitu chcesz wykorzystać ("pełny plan")
+const CLAUDE_MAX_DAILY_PCT = 100 / 7; // max % limitu możliwy do zużycia w 1 dzień (2×5h okna) ≈ 14,29
 
 let claudeState = { actualPct: null };
 
@@ -617,12 +619,15 @@ function updateClaudeUI() {
 
     const statusEl = document.getElementById('claudeStatus');
     const projEl = document.getElementById('claudeProjection');
+    const tipEl = document.getElementById('claudeTipping');
     const actual = claudeState.actualPct;
 
     if (actual === null || actual === undefined || isNaN(actual)) {
         statusEl.className = 'target-status';
         statusEl.innerText = 'Wpisz swój % aby porównać z planem';
         projEl.innerText = '';
+        tipEl.className = 'claude-tipping';
+        tipEl.innerText = '';
         return;
     }
 
@@ -655,6 +660,47 @@ function updateClaudeUI() {
         }
     } else {
         projEl.innerText = '';
+    }
+
+    // ===== PUNKT KRYTYCZNY (TIPPING POINT) =====
+    // Ile dni do resetu i ile max jeszcze zdążysz wykorzystać przy pełnej parze
+    const daysLeft = timeLeft / 86400000;
+    const remainingToTarget = CLAUDE_TARGET_PCT - actual;
+
+    if (remainingToTarget <= 0) {
+        tipEl.className = 'claude-tipping good';
+        tipEl.innerText = `🎯 Cel ${CLAUDE_TARGET_PCT}% osiągnięty — plan tygodniowy wykorzystany.`;
+    } else {
+        // Max jeszcze osiągalne = teraz + (max dzienne × dni do resetu)
+        const maxReachable = actual + CLAUDE_MAX_DAILY_PCT * daysLeft;
+        // Ile dni pełnej pary trzeba, by dobić do celu
+        const neededFullDays = remainingToTarget / CLAUDE_MAX_DAILY_PCT;
+        // Zapas czasu zanim MUSISZ iść pełną parą
+        const bufferDays = daysLeft - neededFullDays;
+
+        if (maxReachable < CLAUDE_TARGET_PCT - 0.1) {
+            // Po punkcie krytycznym - planu już nie dobijesz
+            const short = CLAUDE_TARGET_PCT - maxReachable;
+            tipEl.className = 'claude-tipping bad';
+            tipEl.innerText =
+                `⛔ Po punkcie krytycznym. Nawet pełną parą dojdziesz max do ~${maxReachable.toFixed(0)}% ` +
+                `(zabraknie ~${short.toFixed(0)} pkt% do ${CLAUDE_TARGET_PCT}%).`;
+        } else if (bufferDays <= 0.04) {
+            // ~1h zapasu lub mniej - musisz już jechać pełną parą
+            tipEl.className = 'claude-tipping warn';
+            tipEl.innerText =
+                `⚠️ Punkt krytyczny TERAZ — od teraz musisz iść pełną parą codziennie, aby dobić do ${CLAUDE_TARGET_PCT}%.`;
+        } else {
+            // Masz jeszcze zapas - pokaż odliczanie do tipping pointu
+            const tipDate = new Date(Date.now() + bufferDays * 86400000);
+            const dayName = ['niedz.', 'pon.', 'wt.', 'śr.', 'czw.', 'pt.', 'sob.'][tipDate.getDay()];
+            const hh = String(tipDate.getHours()).padStart(2, '0');
+            const mm = String(tipDate.getMinutes()).padStart(2, '0');
+            tipEl.className = 'claude-tipping good';
+            tipEl.innerText =
+                `✅ Zapas do punktu krytycznego: ${formatCountdown(bufferDays * 86400000)} ` +
+                `(${dayName} ${hh}:${mm}). Potem trzeba pełną parą.`;
+        }
     }
 }
 
