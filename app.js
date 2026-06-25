@@ -553,48 +553,10 @@ function updateCoachUI() {
 }
 
 
-// ==== KALKULATOR 2: LIMIT TYGODNIOWY CLAUDE CODE ====
-// Reset tygodnia: niedziela o 17:00 (czas lokalny).
-const CLAUDE_KEY = 'claudeWeeklyState';
-const CLAUDE_RESET_DAY = 0;   // 0 = niedziela (Date.getDay(): 0=ndz ... 6=sob)
-const CLAUDE_RESET_HOUR = 17; // 17:00
+// ==== GENERYCZNY TRACKER LIMITU TYGODNIOWEGO (Claude, GLM, ...) ====
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-const CLAUDE_TOLERANCE = 1.5;     // margines "idealnego tempa" w punktach %
-const CLAUDE_TARGET_PCT = 100;    // jaki % limitu chcesz wykorzystać ("pełny plan")
-const CLAUDE_MAX_DAILY_PCT = 100 / 7; // max % limitu możliwy do zużycia w 1 dzień (2×5h okna) ≈ 14,29
-
-let claudeState = { actualPct: null };
-
-function loadClaudeState() {
-    const saved = localStorage.getItem(CLAUDE_KEY);
-    if (saved) claudeState = { ...claudeState, ...JSON.parse(saved) };
-}
-
-function saveClaudeState() {
-    localStorage.setItem(CLAUDE_KEY, JSON.stringify(claudeState));
-}
-
-// Zwraca info o obecnym tygodniu rozliczeniowym
-function getClaudeWeek() {
-    const now = new Date();
-
-    // Znajdź ostatnią niedzielę o 17:00 (start bieżącego tygodnia)
-    const reset = new Date(now);
-    reset.setHours(CLAUDE_RESET_HOUR, 0, 0, 0);
-    // Cofnij do dnia resetu (niedziela)
-    let daysBack = (reset.getDay() - CLAUDE_RESET_DAY + 7) % 7;
-    reset.setDate(reset.getDate() - daysBack);
-    // Jeśli wyszło w przyszłości (np. niedziela przed 17:00) - cofnij o tydzień
-    if (reset > now) reset.setDate(reset.getDate() - 7);
-
-    const elapsed = now - reset;
-    const next = new Date(reset.getTime() + WEEK_MS);
-    let expectedPct = (elapsed / WEEK_MS) * 100;
-    if (expectedPct > 100) expectedPct = 100;
-    if (expectedPct < 0) expectedPct = 0;
-
-    return { expectedPct, reset, next, elapsed };
-}
+const TRACKER_TOLERANCE = 1.5; // margines "idealnego tempa" w punktach %
+const DAY_NAMES = ['niedz.', 'pon.', 'wt.', 'śr.', 'czw.', 'pt.', 'sob.'];
 
 function formatCountdown(ms) {
     if (ms < 0) ms = 0;
@@ -605,119 +567,162 @@ function formatCountdown(ms) {
     return `${d}d ${h}h ${m}m`;
 }
 
-function updateClaudeUI() {
-    const { expectedPct, next, elapsed } = getClaudeWeek();
+// cfg: { key, resetDay, resetHour, resetMinute, resetText, targetPct, maxDailyPct,
+//        ids: { expected, bar, label, resetInfo, input, status, projection, tipping } }
+function createWeeklyTracker(cfg) {
+    let st = { actualPct: null };
 
-    document.getElementById('claudeExpected').innerHTML =
-        `${expectedPct.toFixed(1)}<span class="unit">%</span>`;
-    document.getElementById('claudeExpectedBar').style.width = `${expectedPct}%`;
-    document.getElementById('claudeExpectedLabel').innerText = `${expectedPct.toFixed(1)}%`;
-
-    const timeLeft = next - new Date();
-    document.getElementById('claudeResetInfo').innerHTML =
-        `Reset: niedziela 17:00 &bull; za ${formatCountdown(timeLeft)}`;
-
-    const statusEl = document.getElementById('claudeStatus');
-    const projEl = document.getElementById('claudeProjection');
-    const tipEl = document.getElementById('claudeTipping');
-    const actual = claudeState.actualPct;
-
-    if (actual === null || actual === undefined || isNaN(actual)) {
-        statusEl.className = 'target-status';
-        statusEl.innerText = 'Wpisz swój % aby porównać z planem';
-        projEl.innerText = '';
-        tipEl.className = 'claude-tipping';
-        tipEl.innerText = '';
-        return;
+    function load() {
+        const saved = localStorage.getItem(cfg.key);
+        if (saved) st = { ...st, ...JSON.parse(saved) };
+    }
+    function save() {
+        localStorage.setItem(cfg.key, JSON.stringify(st));
     }
 
-    // diff > 0 => zużywasz SZYBCIEJ niż plan (ryzyko wyczerpania) => zwolnij (czerwony)
-    // diff < 0 => masz zapas (wolniej niż plan) => możesz przyspieszyć (zielony)
-    const diff = actual - expectedPct;
+    // Info o obecnym tygodniu rozliczeniowym
+    function getWeek() {
+        const now = new Date();
+        const reset = new Date(now);
+        reset.setHours(cfg.resetHour, cfg.resetMinute, 0, 0);
+        const daysBack = (reset.getDay() - cfg.resetDay + 7) % 7;
+        reset.setDate(reset.getDate() - daysBack);
+        if (reset > now) reset.setDate(reset.getDate() - 7);
 
-    if (diff > CLAUDE_TOLERANCE) {
-        statusEl.className = 'target-status status-positive'; // czerwony
-        statusEl.innerText = `⚠ Za szybko o ${diff.toFixed(1)} pkt% — ZWOLNIJ`;
-    } else if (diff < -CLAUDE_TOLERANCE) {
-        statusEl.className = 'target-status status-negative'; // zielony
-        statusEl.innerText = `✓ Zapas ${Math.abs(diff).toFixed(1)} pkt% — możesz PRZYSPIESZYĆ`;
-    } else {
-        statusEl.className = 'target-status status-negative'; // zielony
-        statusEl.innerText = `✓ Idealne tempo (różnica ${diff.toFixed(1)} pkt%)`;
+        const elapsed = now - reset;
+        const next = new Date(reset.getTime() + WEEK_MS);
+        let expectedPct = (elapsed / WEEK_MS) * 100;
+        expectedPct = Math.max(0, Math.min(100, expectedPct));
+        return { expectedPct, reset, next, elapsed };
     }
 
-    // Projekcja: przy obecnym tempie ile % wyjdzie na koniec tygodnia
-    const elapsedFrac = elapsed / WEEK_MS;
-    if (elapsedFrac > 0.01 && actual > 0) {
-        const projected = actual / elapsedFrac;
-        if (projected > 100.5) {
-            projEl.innerText =
-                `Przy tym tempie wyczerpiesz 100% limitu jeszcze przed resetem ` +
-                `(prognoza ~${projected.toFixed(0)}% gdyby tempo się utrzymało).`;
-        } else {
-            projEl.innerText =
-                `Przy tym tempie zużyjesz ~${projected.toFixed(0)}% limitu do resetu.`;
+    const $ = (id) => document.getElementById(cfg.ids[id]);
+
+    function update() {
+        const { expectedPct, next, elapsed } = getWeek();
+
+        $('expected').innerHTML = `${expectedPct.toFixed(1)}<span class="unit">%</span>`;
+        $('bar').style.width = `${expectedPct}%`;
+        $('label').innerText = `${expectedPct.toFixed(1)}%`;
+
+        const timeLeft = next - new Date();
+        $('resetInfo').innerHTML = `Reset: ${cfg.resetText} &bull; za ${formatCountdown(timeLeft)}`;
+
+        const statusEl = $('status');
+        const projEl = $('projection');
+        const tipEl = $('tipping');
+        const actual = st.actualPct;
+
+        if (actual === null || actual === undefined || isNaN(actual)) {
+            statusEl.className = 'target-status';
+            statusEl.innerText = 'Wpisz swój % aby porównać z planem';
+            projEl.innerText = '';
+            tipEl.className = 'claude-tipping';
+            tipEl.innerText = '';
+            return;
         }
-    } else {
-        projEl.innerText = '';
-    }
 
-    // ===== PUNKT KRYTYCZNY (TIPPING POINT) =====
-    // Ile dni do resetu i ile max jeszcze zdążysz wykorzystać przy pełnej parze
-    const daysLeft = timeLeft / 86400000;
-    const remainingToTarget = CLAUDE_TARGET_PCT - actual;
-
-    if (remainingToTarget <= 0) {
-        tipEl.className = 'claude-tipping good';
-        tipEl.innerText = `🎯 Cel ${CLAUDE_TARGET_PCT}% osiągnięty — plan tygodniowy wykorzystany.`;
-    } else {
-        // Max jeszcze osiągalne = teraz + (max dzienne × dni do resetu)
-        const maxReachable = actual + CLAUDE_MAX_DAILY_PCT * daysLeft;
-        // Ile dni pełnej pary trzeba, by dobić do celu
-        const neededFullDays = remainingToTarget / CLAUDE_MAX_DAILY_PCT;
-        // Zapas czasu zanim MUSISZ iść pełną parą
-        const bufferDays = daysLeft - neededFullDays;
-
-        if (maxReachable < CLAUDE_TARGET_PCT - 0.1) {
-            // Po punkcie krytycznym - planu już nie dobijesz
-            const short = CLAUDE_TARGET_PCT - maxReachable;
-            tipEl.className = 'claude-tipping bad';
-            tipEl.innerText =
-                `⛔ Po punkcie krytycznym. Nawet pełną parą dojdziesz max do ~${maxReachable.toFixed(0)}% ` +
-                `(zabraknie ~${short.toFixed(0)} pkt% do ${CLAUDE_TARGET_PCT}%).`;
-        } else if (bufferDays <= 0.04) {
-            // ~1h zapasu lub mniej - musisz już jechać pełną parą
-            tipEl.className = 'claude-tipping warn';
-            tipEl.innerText =
-                `⚠️ Punkt krytyczny TERAZ — od teraz musisz iść pełną parą codziennie, aby dobić do ${CLAUDE_TARGET_PCT}%.`;
+        // diff > 0 => zużywasz SZYBCIEJ niż plan (zwolnij), diff < 0 => masz zapas
+        const diff = actual - expectedPct;
+        if (diff > TRACKER_TOLERANCE) {
+            statusEl.className = 'target-status status-positive';
+            statusEl.innerText = `⚠ Za szybko o ${diff.toFixed(1)} pkt% — ZWOLNIJ`;
+        } else if (diff < -TRACKER_TOLERANCE) {
+            statusEl.className = 'target-status status-negative';
+            statusEl.innerText = `✓ Zapas ${Math.abs(diff).toFixed(1)} pkt% — możesz PRZYSPIESZYĆ`;
         } else {
-            // Masz jeszcze zapas - pokaż odliczanie do tipping pointu
-            const tipDate = new Date(Date.now() + bufferDays * 86400000);
-            const dayName = ['niedz.', 'pon.', 'wt.', 'śr.', 'czw.', 'pt.', 'sob.'][tipDate.getDay()];
-            const hh = String(tipDate.getHours()).padStart(2, '0');
-            const mm = String(tipDate.getMinutes()).padStart(2, '0');
+            statusEl.className = 'target-status status-negative';
+            statusEl.innerText = `✓ Idealne tempo (różnica ${diff.toFixed(1)} pkt%)`;
+        }
+
+        // Projekcja na koniec tygodnia
+        const elapsedFrac = elapsed / WEEK_MS;
+        if (elapsedFrac > 0.01 && actual > 0) {
+            const projected = actual / elapsedFrac;
+            if (projected > 100.5) {
+                projEl.innerText =
+                    `Przy tym tempie wyczerpiesz 100% limitu jeszcze przed resetem ` +
+                    `(prognoza ~${projected.toFixed(0)}% gdyby tempo się utrzymało).`;
+            } else {
+                projEl.innerText = `Przy tym tempie zużyjesz ~${projected.toFixed(0)}% limitu do resetu.`;
+            }
+        } else {
+            projEl.innerText = '';
+        }
+
+        // ===== PUNKT KRYTYCZNY (TIPPING POINT) =====
+        const daysLeft = timeLeft / 86400000;
+        const remainingToTarget = cfg.targetPct - actual;
+
+        if (remainingToTarget <= 0) {
             tipEl.className = 'claude-tipping good';
-            tipEl.innerText =
-                `✅ Zapas do punktu krytycznego: ${formatCountdown(bufferDays * 86400000)} ` +
-                `(${dayName} ${hh}:${mm}). Potem trzeba pełną parą.`;
+            tipEl.innerText = `🎯 Cel ${cfg.targetPct}% osiągnięty — plan tygodniowy wykorzystany.`;
+        } else {
+            const maxReachable = actual + cfg.maxDailyPct * daysLeft;
+            const neededFullDays = remainingToTarget / cfg.maxDailyPct;
+            const bufferDays = daysLeft - neededFullDays;
+
+            if (maxReachable < cfg.targetPct - 0.1) {
+                const short = cfg.targetPct - maxReachable;
+                tipEl.className = 'claude-tipping bad';
+                tipEl.innerText =
+                    `⛔ Po punkcie krytycznym. Nawet pełną parą dojdziesz max do ~${maxReachable.toFixed(0)}% ` +
+                    `(zabraknie ~${short.toFixed(0)} pkt% do ${cfg.targetPct}%).`;
+            } else if (bufferDays <= 0.04) {
+                tipEl.className = 'claude-tipping warn';
+                tipEl.innerText =
+                    `⚠️ Punkt krytyczny TERAZ — od teraz musisz iść pełną parą codziennie, aby dobić do ${cfg.targetPct}%.`;
+            } else {
+                const tipDate = new Date(Date.now() + bufferDays * 86400000);
+                const hh = String(tipDate.getHours()).padStart(2, '0');
+                const mm = String(tipDate.getMinutes()).padStart(2, '0');
+                tipEl.className = 'claude-tipping good';
+                tipEl.innerText =
+                    `✅ Zapas do punktu krytycznego: ${formatCountdown(bufferDays * 86400000)} ` +
+                    `(${DAY_NAMES[tipDate.getDay()]} ${hh}:${mm}). Potem trzeba pełną parą.`;
+            }
         }
     }
+
+    const inp = document.getElementById(cfg.ids.input);
+    inp.addEventListener('input', (e) => {
+        const v = e.target.value;
+        st.actualPct = (v === '' ? null : parseFloat(v));
+        save();
+        update();
+    });
+
+    load();
+    if (st.actualPct !== null && st.actualPct !== undefined) inp.value = st.actualPct;
+    update();
+    setInterval(update, 1000);
 }
 
-document.getElementById('inputClaudeActual').addEventListener('input', (e) => {
-    const v = e.target.value;
-    claudeState.actualPct = (v === '' ? null : parseFloat(v));
-    saveClaudeState();
-    updateClaudeUI();
+// Claude Code — reset niedziela 17:00
+createWeeklyTracker({
+    key: 'claudeWeeklyState',
+    resetDay: 0, resetHour: 17, resetMinute: 0,
+    resetText: 'niedziela 17:00',
+    targetPct: 100, maxDailyPct: 100 / 7,
+    ids: {
+        expected: 'claudeExpected', bar: 'claudeExpectedBar', label: 'claudeExpectedLabel',
+        resetInfo: 'claudeResetInfo', input: 'inputClaudeActual', status: 'claudeStatus',
+        projection: 'claudeProjection', tipping: 'claudeTipping'
+    }
 });
 
-loadClaudeState();
-if (claudeState.actualPct !== null && claudeState.actualPct !== undefined) {
-    document.getElementById('inputClaudeActual').value = claudeState.actualPct;
-}
-updateClaudeUI();
-// Odświeżanie "na żywo" co sekundę (plan tempa rośnie płynnie)
-setInterval(updateClaudeUI, 1000);
+// GLM 5.2 — reset środa 07:36
+createWeeklyTracker({
+    key: 'glmWeeklyState',
+    resetDay: 3, resetHour: 7, resetMinute: 36,
+    resetText: 'środa 07:36',
+    targetPct: 100, maxDailyPct: 100 / 7,
+    ids: {
+        expected: 'glmExpected', bar: 'glmExpectedBar', label: 'glmExpectedLabel',
+        resetInfo: 'glmResetInfo', input: 'inputGlmActual', status: 'glmStatus',
+        projection: 'glmProjection', tipping: 'glmTipping'
+    }
+});
 
 // Licznik trawienia również odświeżany co sekundę
 updateDigestUI();

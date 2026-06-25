@@ -22,7 +22,7 @@
     <!-- Icons -->
     <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
 
-    <link rel="stylesheet" href="style.css?v=7">
+    <link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
 
@@ -142,6 +142,40 @@
             <div class="claude-projection" id="claudeProjection"></div>
             <div class="claude-tipping" id="claudeTipping"></div>
         </section>
+
+        <!-- ===== KALKULATOR 3: Limit tygodniowy GLM 5.2 ===== -->
+        <div class="divider-label">
+            <i class="ri-cpu-line"></i> Limit tygodniowy GLM 5.2
+        </div>
+
+        <section class="claude-card balance-card">
+            <h2 class="section-title">Plan tempa (powinno być zużyte)</h2>
+            <div class="balance-mega" id="glmExpected">
+                --<span class="unit">%</span>
+            </div>
+            <div class="balance-subtitle" id="glmResetInfo">
+                Reset: środa 07:36 &bull; na żywo
+            </div>
+
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="glmExpectedBar" style="width: 0%;"></div>
+            </div>
+            <div class="target-stats">
+                <span>Idealne tempo liniowe</span>
+                <span id="glmExpectedLabel">--%</span>
+            </div>
+
+            <div class="form-group" style="margin-top: 20px; margin-bottom: 12px; text-align: left;">
+                <label for="inputGlmActual">Twoje obecne wykorzystanie (%)</label>
+                <input type="number" id="inputGlmActual" min="0" max="100" step="0.1" placeholder="Np. 42">
+            </div>
+
+            <div class="target-status" id="glmStatus">
+                Wpisz swój % aby porównać z planem
+            </div>
+            <div class="claude-projection" id="glmProjection"></div>
+            <div class="claude-tipping" id="glmTipping"></div>
+        </section>
     </main>
 
     <!-- History View -->
@@ -218,6 +252,6 @@
         </button>
     </nav>
 
-    <script src="app.js?v=7"></script>
+    <script src="app.js?v=8"></script>
 </body>
 </html>
